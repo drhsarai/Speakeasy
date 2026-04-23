@@ -1,0 +1,55 @@
+// services/update_service.dart
+
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/card.dart';
+
+class UpdateService {
+  // TODO: Replace with your real server URL before release
+  static const String _backendUrl = 'https://your-backend.example.com/updates.json';
+
+  static Future<List<CommCard>?> checkForUpdates() async {
+    try {
+      final response = await http.get(Uri.parse(_backendUrl));
+      if (response.statusCode == 200) {
+        final data = json.decode(response.body) as List;
+        return data
+            .map((e) => CommCard.fromJson(e as Map<String, dynamic>))
+            .toList();
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Merge [newCards] into the locally stored deck.
+  /// Cards with matching IDs are updated; genuinely new IDs are appended.
+  static Future<void> applyUpdates(List<CommCard> newCards) async {
+    final prefs = await SharedPreferences.getInstance();
+    final existing = prefs.getStringList('cards') ?? [];
+
+    // FIX: Previously this used a Set<String> spread which deduplicates on the
+    // raw JSON string — so a card whose content changed (same id, new text) would
+    // NOT be updated because its JSON string differs from the stored one.
+    // The correct approach is to merge by card ID.
+    final Map<String, CommCard> merged = {};
+
+    // Load existing cards into the map, keyed by ID
+    for (final s in existing) {
+      try {
+        final card = CommCard.fromJson(json.decode(s) as Map<String, dynamic>);
+        merged[card.id] = card;
+      } catch (_) {}
+    }
+
+    // Overwrite / add incoming cards by ID
+    for (final card in newCards) {
+      merged[card.id] = card;
+    }
+
+    await prefs.setStringList(
+      'cards',
+      merged.values.map((c) => json.encode(c.toJson())).toList(),
+    );
+  }
+}
